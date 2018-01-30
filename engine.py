@@ -4,18 +4,39 @@ import copy
 
 BADVAL = -99999999
 
+def ToInt(s):
+    try:
+        s = int(s)
+    except:
+        s = int(s[1:-1])
+    return s
 def aggregate(table, col, func):
     if func.lower() == 'min':
-        table[col] = [min(table[col])]
+        # print "here",min(table[col])
+        table[col] = [min([num for num in table[col] if num != BADVAL])]
     elif func.lower() == 'max':
         table[col] = [max(table[col])]
     elif func.lower() == 'sum':
         s = 0
         for num in table[col]:
-            s += int(num)
+            if num!=BADVAL : s += num
         table[col] = [s]
     elif func.lower() == 'distinct':
         table[col] = list(set(table[col]))
+    elif func.lower() == 'count' :
+        l = 0
+        for num in table[col] :
+            if num != BADVAL : l += 1
+        table[col] = [l]
+    elif func.lower() == 'avg' :
+        s=0
+        l=0
+        for num in table[col] :
+            if num!=BADVAL :
+                s += num
+                l += 1
+
+        table[col] = [float(s)/float(l)]
     return table
 
 def readMetadata(dictionary):
@@ -41,7 +62,8 @@ def evaluate_csv(tabs):
         with open(tabs, "r+") as fp2:
             j = fp2.readlines()
     except:
-        raise NotImplementedError('This table does not exists')
+        print ('This table does not exists')
+        sys.exit(0)
     for k in j:
         m.append(k.rstrip("\r\n"))
     return m
@@ -67,7 +89,7 @@ def preprocess():
             row = row.split(',')
             for i in range(len(row)):
                 col_name = meta_dict[tab][i]
-                db_col_dict[tab][col_name].append(row[i])
+                db_col_dict[tab][col_name].append(ToInt(row[i]))
 
     return meta_dict, db_row_dict, db_col_dict
 
@@ -75,16 +97,65 @@ def apply_op(val1, val2, op):
     if op == '=':
         return val1 != val2
     elif op == '<':
-        return val1 > val2
-    elif op == '>':
-        return val1 < val2
-    elif op == '<=':
         return val1 >= val2
-    elif op == '>=':
+    elif op == '>':
         return val1 <= val2
+    elif op == '<=':
+        return val1 > val2
+    elif op == '>=':
+        return val1 < val2
     else:
-        raise NotImplementedError(str(op) + ' operator not recognized')
+        print(str(op) + ' operator not recognized')
+        sys.exit(0)
 
+def print_beautify(table1, table2, table3, conjc, col_list):
+    if conjc == 'and':
+        for c in table2:
+            for i in range(len(table2[c])):
+                if table2[c][i] == BADVAL or table3[c][i] == BADVAL:
+                    # print('not here')
+                    table1[c][i] = BADVAL
+    elif conjc == 'or':
+        for c in table2:
+            for i in range(len(table2[c])):
+                if table2[c][i] == BADVAL and table3[c][i] == BADVAL:
+                    table1[c][i] = BADVAL
+    else:
+        table1 = table2
+    col_print = [c.strip() for c in col_list]
+    check_dup = []
+    if(col_list[0] == '*'):
+        col_print = []
+        for c in table1:
+            raw_name = (c.split('.'))[-1]
+            if raw_name not in check_dup:
+                check_dup.append(raw_name)
+                col_print.append(c)
+
+    for c in col_print:
+        print str(c)+"\t",
+    print
+    for c in col_print:
+        if '(' in c:
+            func = (c.split('('))[0]
+            c = (((c.split('('))[1]).split(')'))[0]
+            table1 = aggregate(table1, c, func)
+
+            c = col_print[0]
+            col_print = [(((c.split('('))[1]).split(')'))[0]]
+
+    for i in range(len(table1[col_print[0]])):
+        print_flag = False
+        for j in range(len(col_print)):
+            if table1[col_print[j]][i] != BADVAL:
+                print_flag = True
+                if(type(table1[col_print[j]][i]) == type(4.5)):
+                    print str(format(table1[col_print[j]][i],'.2f')) + "\t",
+                else:
+                    print str(table1[col_print[j]][i]) + "\t",
+        if print_flag:
+            print
+    # print
 
 def main():
     meta_dict, db_row_dict, db_col_dict = preprocess()
@@ -104,7 +175,8 @@ def main():
 
             for t in table_list:
                 if t not in meta_dict:
-                    raise NotImplementedError('Table does not exist')
+                    print('Table does not exist')
+                    sys.exit(0)
             if len(table_list) > 1:
                 for i in range(len(column_list)):
                     for tab in meta_dict:
@@ -136,15 +208,15 @@ def main():
                     key = str(comparison.tokens[0])
                     op = str(comparison.tokens[2])
                     try:
-                        value = int(str(comparison.tokens[4]))
+                        value = ToInt(str(comparison.tokens[4]))
                         for i in range(len(final_table[key])):
-                            if apply_op(int(final_table[key][i]), value, op):
+                            if apply_op(final_table[key][i], value, op):
                                 for col_head in final_table:
                                     final_table[col_head][i] = BADVAL
                     except:
                         value = str(comparison.tokens[4])
                         for i in range(len(final_table[key])):
-                            if apply_op(int(final_table[key][i]), int(final_table[value][i]), op):
+                            if apply_op(final_table[key][i], final_table[value][i], op):
                                 for col_head in final_table:
                                     final_table[col_head][i] = BADVAL
                     try:
@@ -153,28 +225,26 @@ def main():
                         key = str(comparison.tokens[0])
                         op = str(comparison.tokens[2])
                         try:
-                            value = int(str(comparison.tokens[4]))
+                            value = ToInt(str(comparison.tokens[4]))
                             for i in range(len(dup_table[key])):
-                                if apply_op(int(dup_table[key][i]), value, op):
+                                if apply_op(dup_table[key][i], value, op):
                                     for col_head in dup_table:
                                         dup_table[col_head][i] = BADVAL
                         except:
                             value = str(comparison.tokens[4])
                             for i in range(len(dup_table[key])):
-                                if apply_op(int(dup_table[key][i]), int(dup_table[value][i]), op):
+                                if apply_op(dup_table[key][i], dup_table[value][i], op):
                                     for col_head in dup_table:
                                         dup_table[col_head][i] = BADVAL
                     except:
                         conjuction = None
             print_beautify(fresh_table, final_table, dup_table, conjuction, column_list)
         else:
-            raise Exception(
-                "Invalid Syntax "
-            )
+            print("Invalid Syntax ")
+            sys.exit(0)
     else:
-        raise Exception(
-            "Unsupported Operation"
-        )
+        print("Unsupported Query")
+        sys.exit(0)
 
 if __name__ == "__main__":
     main()
